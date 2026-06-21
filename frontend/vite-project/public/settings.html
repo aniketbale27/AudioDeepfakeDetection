@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Settings | Audio Deepfake Detection</title>
+    <link rel="stylesheet" href="/css/sections.css" />
+    <script defer src="/js/sections-common.js"></script>
+    <script defer src="/js/settings.js"></script>
+  </head>
+  <body data-page="settings">
+    <div class="layout">
+      <aside class="sidebar">
+        <div class="brand">
+          <h1>Audio Deepfake AI</h1>
+          <p>Secure voice authenticity analysis</p>
+        </div>
+
+        <nav class="nav-links" aria-label="Sidebar Navigation">
+          <a class="nav-link" href="/" data-nav="home">Home</a>
+          <a class="nav-link" href="/" data-nav="upload">Upload Audio</a>
+          <a class="nav-link" href="/history.html" data-nav="history">History</a>
+          <a class="nav-link" href="/settings.html" data-nav="settings">Settings</a>
+          <a class="nav-link" href="#" data-nav="about">About Us</a>
+          <a class="nav-link" href="/profile.html" data-nav="profile">Profile</a>
+        </nav>
+
+        <div class="sidebar-footer">
+          <p>Signed in as</p>
+          <strong data-user-slot>Guest</strong>
+          <div class="sidebar-actions">
+            <button id="sidebarLogoutBtn" type="button">Logout</button>
+          </div>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="page-head">
+          <h2>Settings</h2>
+          <p>Customize theme, readability, and UI behavior preferences.</p>
+        </header>
+
+        <section class="glass-card settings-grid">
+          <article class="setting-row">
+            <h3>Dark / Light Mode</h3>
+            <p>Switch your interface mode and keep it persistent across refresh.</p>
+            <div class="toggle-line">
+              <span id="modeLabel">Dark Mode</span>
+              <input id="modeToggle" type="checkbox" aria-label="Mode Toggle" />
+            </div>
+          </article>
+
+          <article class="setting-row">
+            <h3>Theme Colors</h3>
+            <p>Pick your preferred accent color.</p>
+            <div class="accent-grid">
+              <label><input type="radio" name="accentColor" value="blue" /> Blue</label>
+              <label><input type="radio" name="accentColor" value="purple" /> Purple</label>
+              <label><input type="radio" name="accentColor" value="green" /> Green</label>
+              <label><input type="radio" name="accentColor" value="default-dark" /> Default Dark</label>
+            </div>
+          </article>
+
+          <article class="setting-row">
+            <h3>Font Size</h3>
+            <p>Choose text scale for better readability.</p>
+            <div class="toggle-line">
+              <span>Text Size</span>
+              <select id="fontSizeSelect" aria-label="Font Size">
+                <option value="small">Small</option>
+                <option value="medium">Medium</option>
+                <option value="large">Large</option>
+              </select>
+            </div>
+          </article>
+
+          <article class="setting-row">
+            <h3>Animations</h3>
+            <p>Enable or disable card and transition animations.</p>
+            <div class="toggle-line">
+              <span>Allow Animations</span>
+              <input id="animationToggle" type="checkbox" aria-label="Animation Toggle" />
+            </div>
+          </article>
+
+          <div class="settings-actions">
+            <button id="saveSettingsBtn" type="button" class="primary-btn">Save Settings</button>
+            <button id="resetSettingsBtn" type="button" class="secondary-btn">Reset Defaults</button>
+          </div>
+
+          <p id="settingsMessage" class="status-text"></p>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

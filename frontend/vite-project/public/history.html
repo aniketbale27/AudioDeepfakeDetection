@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>History | Audio Deepfake Detection</title>
+    <link rel="stylesheet" href="/css/sections.css" />
+    <script defer src="/js/sections-common.js"></script>
+    <script defer src="/js/history.js"></script>
+  </head>
+  <body data-page="history">
+    <div class="layout">
+      <aside class="sidebar">
+        <div class="brand">
+          <h1>Audio Deepfake AI</h1>
+          <p>Secure voice authenticity analysis</p>
+        </div>
+
+        <nav class="nav-links" aria-label="Sidebar Navigation">
+          <a class="nav-link" href="/" data-nav="home">Home</a>
+          <a class="nav-link" href="/" data-nav="upload">Upload Audio</a>
+          <a class="nav-link" href="/history.html" data-nav="history">History</a>
+          <a class="nav-link" href="/settings.html" data-nav="settings">Settings</a>
+          <a class="nav-link" href="#" data-nav="about">About Us</a>
+          <a class="nav-link" href="/profile.html" data-nav="profile">Profile</a>
+        </nav>
+
+        <div class="sidebar-footer">
+          <p>Signed in as</p>
+          <strong data-user-slot>Guest</strong>
+          <div class="sidebar-actions">
+            <button id="sidebarLogoutBtn" type="button">Logout</button>
+          </div>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="page-head">
+          <h2>Prediction History</h2>
+          <p>Track and review previously analyzed audio files.</p>
+        </header>
+
+        <section class="glass-card">
+          <div class="filter-controls">
+            <input id="historySearch" type="text" placeholder="Search by filename" />
+            <select id="historyFilter">
+              <option value="ALL">All Results</option>
+              <option value="REAL">REAL</option>
+              <option value="DEEPFAKE">DEEPFAKE</option>
+            </select>
+            <button id="clearAllHistoryBtn" class="danger-btn" type="button">Clear All History</button>
+          </div>
+
+          <p id="historyStats" class="history-stats">Total: 0 | REAL: 0 | DEEPFAKE: 0</p>
+
+          <div id="historyList" class="history-list"></div>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Profile | Audio Deepfake Detection</title>
+    <link rel="stylesheet" href="/css/sections.css" />
+    <script defer src="/js/sections-common.js"></script>
+    <script defer src="/js/profile.js"></script>
+  </head>
+  <body data-page="profile">
+    <div class="layout">
+      <aside class="sidebar">
+        <div class="brand">
+          <h1>Audio Deepfake AI</h1>
+          <p>Secure voice authenticity analysis</p>
+        </div>
+
+        <nav class="nav-links" aria-label="Sidebar Navigation">
+          <a class="nav-link" href="/" data-nav="home">Home</a>
+          <a class="nav-link" href="/" data-nav="upload">Upload Audio</a>
+          <a class="nav-link" href="/history.html" data-nav="history">History</a>
+          <a class="nav-link" href="/settings.html" data-nav="settings">Settings</a>
+          <a class="nav-link" href="#" data-nav="about">About Us</a>
+          <a class="nav-link" href="/profile.html" data-nav="profile">Profile</a>
+        </nav>
+
+        <div class="sidebar-footer">
+          <p>Signed in as</p>
+          <strong data-user-slot>Guest</strong>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="page-head">
+          <h2>Account Access</h2>
+          <p>Sign in or create an account before using audio upload and prediction.</p>
+        </header>
+
+        <section id="authPanel" class="glass-card">
+          <div class="auth-tabs">
+            <button id="showLoginTab" class="active" type="button">Login</button>
+            <button id="showSignupTab" type="button">Create Account</button>
+          </div>
+
+          <div id="loginSection">
+            <form id="loginForm" class="form-grid">
+              <label>
+                Email
+                <input id="loginEmail" type="email" placeholder="you@example.com" required />
+              </label>
+              <label>
+                Password
+                <input id="loginPassword" type="password" minlength="6" placeholder="Minimum 6 characters" required />
+              </label>
+              <button class="primary-btn" type="submit">Login</button>
+            </form>
+            <p id="loginMessage" class="status-text"></p>
+          </div>
+
+          <div id="signupSection" class="hidden">
+            <form id="signupForm" class="form-grid">
+              <label>
+                Full Name
+                <input id="signupName" type="text" placeholder="Your full name" required />
+              </label>
+              <label>
+                Email
+                <input id="signupEmail" type="email" placeholder="you@example.com" required />
+              </label>
+              <label>
+                Password
+                <input id="signupPassword" type="password" minlength="6" placeholder="Minimum 6 characters" required />
+              </label>
+              <label>
+                Confirm Password
+                <input id="signupConfirmPassword" type="password" minlength="6" placeholder="Re-enter password" required />
+              </label>
+              <button class="primary-btn" type="submit">Register</button>
+            </form>
+            <p id="signupMessage" class="status-text"></p>
+          </div>
+        </section>
+
+        <section id="profilePanel" class="glass-card hidden">
+          <h3>Your Profile</h3>
+
+          <div class="profile-details">
+            <div class="detail-row">
+              <span>User Name</span>
+              <strong id="profileName">-</strong>
+            </div>
+            <div class="detail-row">
+              <span>User Email</span>
+              <strong id="profileEmail">-</strong>
+            </div>
+            <div class="detail-row">
+              <span>Joined Date</span>
+              <strong id="profileJoined">-</strong>
+            </div>
+            <div class="detail-row">
+              <span>Total Predictions Count</span>
+              <strong id="profileCount">0</strong>
+            </div>
+          </div>
+
+          <div class="profile-actions">
+            <button id="editProfileBtn" type="button" class="secondary-btn">Edit Profile</button>
+            <button id="logoutBtn" type="button" class="secondary-btn">Logout</button>
+            <button id="openDashboardBtn" type="button" class="primary-btn">Go to Home</button>
+          </div>
+
+          <p id="profileMessage" class="status-text"></p>
+
+          <div id="editProfilePanel" class="hidden">
+            <form id="editProfileForm" class="form-grid">
+              <label>
+                Full Name
+                <input id="editName" type="text" required />
+              </label>
+              <label>
+                Email
+                <input id="editEmail" type="email" required />
+              </label>
+              <button class="primary-btn" type="submit">Save Profile</button>
+            </form>
+          </div>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>
