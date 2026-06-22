@@ -7,6 +7,3 @@ torchaudio
 soundfile
 numpy
 pydantic
-email-validator
-motor
-pymongo
