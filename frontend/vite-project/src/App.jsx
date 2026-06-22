@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
@@ -13,194 +13,603 @@ function clampScore(value) {
 }
 
 function asPercent(value) {
-  return `${(clampScore(value) * 100).toFixed(2)}%`;
+  return `${(clampScore(value) * 100).toFixed(2)} %`;
 }
 
-function fileSizeLabel(file) {
-  if (!file) {
-    return "No file selected";
+function asDecimal(value) {
+  return clampScore(value).toFixed(4);
+}
+
+function formatFileSize(bytes) {
+  const size = Number(bytes);
+  if (!Number.isFinite(size) || size <= 0) {
+    return "N/A";
   }
-  if (file.size < 1024 * 1024) {
-    return `${(file.size / 1024).toFixed(1)} KB`;
+  if (size < 1024 * 1024) {
+    return `${(size / 1024).toFixed(2)} KB`;
   }
-  return `${(file.size / (1024 * 1024)).toFixed(2)} MB`;
+  return `${(size / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function safeFileName(name) {
+  return String(name || "audio-report").replace(/[^a-z0-9._-]/gi, "_");
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function isDeepfakePrediction(prediction) {
+  return String(prediction || "").toUpperCase() !== "REAL";
 }
 
 function predictionTone(prediction) {
-  return prediction === "REAL" ? "real" : "fake";
+  return isDeepfakePrediction(prediction) ? "fake" : "real";
 }
 
-function modelAgreement(result) {
-  if (!result?.la?.prediction || !result?.pa?.prediction) {
-    return "Model agreement unavailable";
+function displayPrediction(prediction) {
+  return isDeepfakePrediction(prediction) ? "Spoofed" : "Genuine";
+}
+
+function displayFinalPrediction(prediction) {
+  return isDeepfakePrediction(prediction) ? "SPOOFED AUDIO" : "GENUINE AUDIO";
+}
+
+function confidenceLabel(value) {
+  const confidence = clampScore(value);
+  if (confidence >= 0.85) {
+    return "High Confidence";
   }
-  return result.la.prediction === result.pa.prediction
-    ? "LA and PA models agree"
-    : "LA and PA models disagree";
+  if (confidence >= 0.65) {
+    return "Moderate Confidence";
+  }
+  return "Low Confidence";
 }
 
-function createReportHtml({ result, fileName, analyzedAt }) {
-  const prediction = result.prediction || "N/A";
-  const realScore = clampScore(result.ensemble_real_score);
-  const fakeScore = clampScore(result.ensemble_fake_score);
-  const laScore = clampScore(result.la_score);
-  const paScore = clampScore(result.pa_score);
-  const confidence = clampScore(result.confidence);
-  const tone = prediction === "REAL" ? "#12715b" : "#a64212";
-  const decisionBasis =
-    fakeScore > realScore
-      ? "The ensemble fake score is higher than the real score, so the file is classified as DEEPFAKE."
-      : "The ensemble real score is higher than or equal to the fake score, so the file is classified as REAL.";
+function modelRows(result) {
+  if (!result) {
+    return [];
+  }
+
+  return [
+    {
+      name: "LCNN",
+      prediction: result.la?.prediction ?? result.prediction,
+      spoofProbability: result.la?.fake_score ?? result.la_score,
+    },
+    {
+      name: "ResNet18",
+      prediction: result.pa?.prediction ?? result.prediction,
+      spoofProbability: result.pa?.fake_score ?? result.pa_score,
+    },
+    {
+      name: "Ensemble (Average)",
+      prediction: result.prediction,
+      spoofProbability: result.ensemble_fake_score,
+      ensemble: true,
+    },
+  ];
+}
+
+function normalizeHistoryItem(item) {
+  if (!item) {
+    return null;
+  }
+
+  const result = item.result ?? item;
+  const fileName =
+    item.fileName ||
+    item.filename ||
+    result.fileName ||
+    result.file_name ||
+    "audio-sample.wav";
+  const uploadedOn =
+    item.uploadedOn ||
+    item.timestamp ||
+    item.date ||
+    result.uploadedOn ||
+    result.analyzedAt ||
+    new Date().toLocaleString();
+
+  return {
+    id: item.id ?? `${Date.now()}-${fileName}`,
+    fileName,
+    fileSize: item.fileSize ?? result.fileSize ?? null,
+    fileSizeLabel:
+      item.fileSizeLabel || result.fileSizeLabel || formatFileSize(item.fileSize ?? result.fileSize),
+    uploadedOn,
+    prediction: item.prediction || result.prediction || "DEEPFAKE",
+    confidence: clampScore(item.confidence ?? result.confidence),
+    realScore: clampScore(item.realScore ?? result.ensemble_real_score),
+    fakeScore: clampScore(item.fakeScore ?? result.ensemble_fake_score),
+    result: {
+      ...result,
+      fileName,
+      uploadedOn,
+      fileSizeLabel:
+        result.fileSizeLabel || item.fileSizeLabel || formatFileSize(item.fileSize ?? result.fileSize),
+    },
+  };
+}
+
+function createReportHtml(entry) {
+  const normalized = normalizeHistoryItem(entry);
+  const result = normalized?.result ?? {};
+  const finalLabel = displayFinalPrediction(normalized?.prediction);
+  const tone = predictionTone(normalized?.prediction);
+  const accent = tone === "fake" ? "#ef2626" : "#10a044";
+  const realScore = clampScore(normalized?.realScore);
+  const fakeScore = clampScore(normalized?.fakeScore);
+  const rows = modelRows(result);
 
   return `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Audio Forensics Report - ${fileName}</title>
+  <title>Audio Deepfake Detection Report</title>
   <style>
-    body { margin: 0; font-family: Arial, sans-serif; background: #f3f7f4; color: #13211d; }
-    .report { max-width: 980px; margin: 0 auto; padding: 36px 24px; }
-    .hero { border: 1px solid #c9d9d1; background: #ffffff; padding: 26px; border-radius: 8px; }
-    .kicker { margin: 0 0 8px; color: #55746b; font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; }
-    h1 { margin: 0; font-size: 30px; }
-    .summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 18px; }
-    .metric { border: 1px solid #d6e2dc; background: #f8fbf9; padding: 14px; border-radius: 8px; }
-    .metric span { display: block; color: #587168; font-size: 13px; }
-    .metric strong { display: block; margin-top: 6px; font-size: 22px; }
-    .badge { display: inline-block; margin-top: 16px; padding: 8px 12px; border-radius: 999px; color: #ffffff; background: ${tone}; font-weight: 700; }
-    .section { margin-top: 18px; border: 1px solid #d6e2dc; background: #ffffff; padding: 20px; border-radius: 8px; }
-    .bar-row { margin: 14px 0; }
-    .bar-label { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 6px; }
-    .bar { height: 14px; background: #e7eee9; border-radius: 999px; overflow: hidden; }
-    .fill { height: 100%; border-radius: inherit; }
-    .fill.real { width: ${realScore * 100}%; background: #12715b; }
-    .fill.fake { width: ${fakeScore * 100}%; background: #c75a20; }
-    .fill.la { width: ${laScore * 100}%; background: #2f6ca3; }
-    .fill.pa { width: ${paScore * 100}%; background: #6b7a2e; }
-    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-    .note { line-height: 1.6; color: #384d45; }
-    @media (max-width: 760px) { .summary, .grid { grid-template-columns: 1fr; } }
+    body { margin: 0; font-family: Arial, sans-serif; background: #f4f8ff; color: #0b1834; }
+    .page { max-width: 1040px; margin: 0 auto; padding: 34px 24px; }
+    .hero, .card { background: #fff; border: 1px solid #d9e3f2; border-radius: 16px; box-shadow: 0 16px 40px rgba(13, 40, 92, .10); }
+    .hero { padding: 30px; border-top: 4px solid ${accent}; }
+    h1, h2, p { margin-top: 0; }
+    .badge { display: inline-block; padding: 9px 16px; border-radius: 999px; background: ${accent}; color: #fff; font-weight: 700; }
+    .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 22px; }
+    .metric { background: #f7faff; border: 1px solid #dfe8f6; border-radius: 14px; padding: 16px; }
+    .metric span { color: #53627c; font-size: 13px; }
+    .metric strong { display: block; margin-top: 8px; font-size: 26px; }
+    .grid { display: grid; grid-template-columns: 1.2fr .8fr; gap: 18px; margin-top: 18px; }
+    .card { padding: 22px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 13px 8px; border-bottom: 1px solid #edf1f7; text-align: left; }
+    .bar { height: 10px; width: 170px; background: #e7edf6; border-radius: 99px; overflow: hidden; }
+    .fill { height: 100%; background: ${accent}; border-radius: 99px; }
+    .chart { display: flex; align-items: end; gap: 34px; height: 220px; padding: 20px 28px 0; border-left: 1px solid #9fb0c9; border-bottom: 1px solid #9fb0c9; }
+    .chart div { flex: 1; min-width: 70px; border-radius: 8px 8px 0 0; background: linear-gradient(#ff4a4a, #e81818); text-align: center; color: #0b1834; font-weight: 700; }
+    .chart .real { height: ${Math.max(realScore * 100, 3)}%; background: linear-gradient(#3e8cff, #0757dc); }
+    .chart .fake { height: ${Math.max(fakeScore * 100, 3)}%; }
+    .note { color: #40516f; line-height: 1.7; }
+    @media (max-width: 760px) { .metrics, .grid { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
-  <main class="report">
+  <main class="page">
     <section class="hero">
-      <p class="kicker">Audio Deepfake Detection Report</p>
-      <h1>${fileName}</h1>
-      <span class="badge">${prediction}</span>
-      <div class="summary">
-        <div class="metric"><span>Final Confidence</span><strong>${asPercent(confidence)}</strong></div>
-        <div class="metric"><span>Analyzed At</span><strong>${analyzedAt}</strong></div>
-        <div class="metric"><span>Model Agreement</span><strong>${modelAgreement(result)}</strong></div>
+      <p>Audio Deepfake Detection System</p>
+      <h1>${escapeHtml(normalized?.fileName)}</h1>
+      <span class="badge">${escapeHtml(finalLabel)}</span>
+      <div class="metrics">
+        <div class="metric"><span>Confidence Score</span><strong>${asPercent(normalized?.confidence)}</strong></div>
+        <div class="metric"><span>Uploaded On</span><strong>${escapeHtml(normalized?.uploadedOn)}</strong></div>
+        <div class="metric"><span>File Size</span><strong>${escapeHtml(normalized?.fileSizeLabel)}</strong></div>
       </div>
     </section>
-
-    <section class="section">
-      <h2>Decision Scores</h2>
-      <div class="bar-row"><div class="bar-label"><span>Real Score</span><strong>${asPercent(realScore)}</strong></div><div class="bar"><div class="fill real"></div></div></div>
-      <div class="bar-row"><div class="bar-label"><span>Fake Score</span><strong>${asPercent(fakeScore)}</strong></div><div class="bar"><div class="fill fake"></div></div></div>
-    </section>
-
-    <section class="section">
-      <h2>Model Evidence</h2>
-      <div class="grid">
-        <div>
-          <h3>LA Model</h3>
-          <p>${result.la?.prediction || "N/A"} at ${asPercent(result.la?.confidence)}</p>
-          <div class="bar-row"><div class="bar-label"><span>LA Fake Score</span><strong>${asPercent(laScore)}</strong></div><div class="bar"><div class="fill la"></div></div></div>
-        </div>
-        <div>
-          <h3>PA Model</h3>
-          <p>${result.pa?.prediction || "N/A"} at ${asPercent(result.pa?.confidence)}</p>
-          <div class="bar-row"><div class="bar-label"><span>PA Fake Score</span><strong>${asPercent(paScore)}</strong></div><div class="bar"><div class="fill pa"></div></div></div>
-        </div>
+    <section class="grid">
+      <div class="card">
+        <h2>Model Prediction Scores</h2>
+        <table>
+          <thead><tr><th>Model</th><th>Prediction</th><th>Probability (Spoof)</th><th>Score Bar</th></tr></thead>
+          <tbody>
+            ${rows
+              .map(
+                (row) => `<tr><td>${escapeHtml(row.name)}</td><td>${escapeHtml(
+                  displayPrediction(row.prediction)
+                )}</td><td>${asDecimal(row.spoofProbability)}</td><td><div class="bar"><div class="fill" style="width:${clampScore(
+                  row.spoofProbability
+                ) * 100}%"></div></div></td></tr>`
+              )
+              .join("")}
+          </tbody>
+        </table>
+      </div>
+      <div class="card">
+        <h2>Probability Distribution</h2>
+        <div class="chart"><div class="real">Real<br>${asPercent(realScore)}</div><div class="fake">Spoofed<br>${asPercent(fakeScore)}</div></div>
       </div>
     </section>
-
-    <section class="section">
-      <h2>Why This Decision Was Made</h2>
-      <p class="note">${decisionBasis} Final confidence is the score attached to the winning class. LA focuses on logical-access style synthetic speech patterns, while PA contributes replay-oriented evidence.</p>
+    <section class="card" style="margin-top:18px">
+      <h2>Evaluation Note</h2>
+      <p class="note">The final prediction is calculated from the ensemble average of LCNN and ResNet18 model evidence. The class with the stronger ensemble probability becomes the final label, and its score is reported as confidence.</p>
     </section>
   </main>
 </body>
 </html>`;
 }
 
-function downloadReport({ result, fileName, analyzedAt }) {
-  const reportHtml = createReportHtml({ result, fileName, analyzedAt });
-  const blob = new Blob([reportHtml], { type: "text/html" });
+function downloadReport(entry) {
+  const normalized = normalizeHistoryItem(entry);
+  const html = createReportHtml(normalized);
+  const blob = new Blob([html], { type: "text/html" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
-  const safeName = fileName.replace(/[^a-z0-9._-]/gi, "_");
 
   link.href = url;
-  link.download = `audio-forensics-report-${safeName}.html`;
+  link.download = `audio-deepfake-report-${safeFileName(normalized?.fileName)}.html`;
   document.body.appendChild(link);
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
 }
 
-function ScoreBar({ label, value, tone }) {
+function AppLogo() {
   return (
-    <div className="score-row">
-      <div className="score-label">
-        <span>{label}</span>
-        <strong>{asPercent(value)}</strong>
+    <div className="brand-logo" aria-hidden="true">
+      <span />
+      <span />
+      <span />
+      <span />
+    </div>
+  );
+}
+
+function ScoreBar({ value }) {
+  return (
+    <div className="score-bar" aria-label={`Score ${asPercent(value)}`}>
+      <span style={{ width: `${clampScore(value) * 100}%` }} />
+    </div>
+  );
+}
+
+function PredictionBanner({ result }) {
+  if (!result) {
+    return (
+      <div className="prediction-card waiting">
+        <div className="status-icon neutral">A</div>
+        <div>
+          <span className="eyebrow">Prediction Result</span>
+          <h2>Awaiting Audio</h2>
+          <p>Upload a file to see the model result and confidence score.</p>
+        </div>
       </div>
-      <div className="score-track">
-        <div className={`score-fill ${tone}`} style={{ width: asPercent(value) }} />
+    );
+  }
+
+  const tone = predictionTone(result.prediction);
+
+  return (
+    <div className={`prediction-card ${tone}`}>
+      <div className={`status-icon ${tone}`}>{tone === "fake" ? "X" : "OK"}</div>
+      <div className="prediction-copy">
+        <span className="eyebrow">Prediction Result</span>
+        <h2>{displayFinalPrediction(result.prediction)}</h2>
+        <p>
+          The uploaded audio is classified as{" "}
+          {isDeepfakePrediction(result.prediction) ? "Fake / Deepfake." : "Real / Genuine."}
+        </p>
+      </div>
+      <div className="confidence-block">
+        <span>Confidence Score</span>
+        <strong>{asPercent(result.confidence)}</strong>
+        <em>{confidenceLabel(result.confidence)}</em>
       </div>
     </div>
   );
 }
 
+function ModelScores({ result }) {
+  if (!result) {
+    return (
+      <section className="panel table-panel">
+        <div className="panel-title">
+          <span className="tiny-icon">M</span>
+          <h3>Model Prediction Scores</h3>
+        </div>
+        <div className="empty-line">Scores will appear after a successful prediction.</div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="panel table-panel">
+      <div className="panel-title">
+        <span className="tiny-icon">M</span>
+        <h3>Model Prediction Scores</h3>
+      </div>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Model</th>
+              <th>Prediction</th>
+              <th>Probability (Spoof)</th>
+              <th>Score Bar</th>
+            </tr>
+          </thead>
+          <tbody>
+            {modelRows(result).map((row) => (
+              <tr key={row.name} className={row.ensemble ? "ensemble-row" : ""}>
+                <td>{row.name}</td>
+                <td className={predictionTone(row.prediction)}>{displayPrediction(row.prediction)}</td>
+                <td>{asDecimal(row.spoofProbability)}</td>
+                <td>
+                  <div className="score-cell">
+                    <ScoreBar value={row.spoofProbability} />
+                    <span>{asPercent(row.spoofProbability)}</span>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="success-note">Final prediction is obtained using ensemble of LCNN and ResNet18 models.</div>
+    </section>
+  );
+}
+
+function ConfidenceGauge({ result }) {
+  const confidence = clampScore(result?.confidence);
+  const angle = -90 + confidence * 180;
+
+  return (
+    <section className="panel gauge-panel">
+      <div className="panel-title">
+        <span className="tiny-icon">G</span>
+        <h3>Confidence Gauge</h3>
+      </div>
+      <div className="gauge" style={{ "--needle-angle": `${angle}deg` }}>
+        <div className="gauge-arc">
+          <span className="gauge-mark left">0</span>
+          <span className="gauge-mark middle">50</span>
+          <span className="gauge-mark right">100</span>
+          <div className="gauge-needle" />
+        </div>
+        <strong>{asPercent(confidence)}</strong>
+        <p>{confidenceLabel(confidence)}</p>
+      </div>
+    </section>
+  );
+}
+
+function AudioDetails({ result, selectedFile }) {
+  const fileName = result?.fileName || result?.file_name || selectedFile?.name || "No file selected";
+  const fileSize = result?.fileSizeLabel || formatFileSize(selectedFile?.size);
+  const uploadedOn = result?.uploadedOn || "Waiting for upload";
+
+  return (
+    <section className="panel details-panel">
+      <div className="panel-title">
+        <span className="tiny-icon">A</span>
+        <h3>Audio Details</h3>
+      </div>
+      <dl className="details-list">
+        <div>
+          <dt>File Name</dt>
+          <dd>{fileName}</dd>
+        </div>
+        <div>
+          <dt>Duration</dt>
+          <dd>{result ? "Available in audio preview" : "N/A"}</dd>
+        </div>
+        <div>
+          <dt>Sample Rate</dt>
+          <dd>Model processed</dd>
+        </div>
+        <div>
+          <dt>File Size</dt>
+          <dd>{fileSize}</dd>
+        </div>
+        <div>
+          <dt>Uploaded On</dt>
+          <dd>{uploadedOn}</dd>
+        </div>
+      </dl>
+    </section>
+  );
+}
+
+function FeatureVisuals({ result }) {
+  const fakeScore = clampScore(result?.ensemble_fake_score);
+  const realScore = clampScore(result?.ensemble_real_score);
+
+  return (
+    <section className="panel feature-panel">
+      <div className="panel-title centered">
+        <h3>Feature Visualization</h3>
+      </div>
+      <div className="feature-grid">
+        <div>
+          <h4>Log-Mel Spectrogram</h4>
+          <div className="spectrogram" aria-label="Decorative spectrogram visualization" />
+        </div>
+        <div>
+          <h4>LFCC Features</h4>
+          <div className="lfcc-map" aria-label="Decorative LFCC feature visualization" />
+        </div>
+        <div>
+          <h4>Probability Distribution</h4>
+          <div className="prob-chart">
+            <div className="axis" />
+            <div className="prob-bar real" style={{ height: `${Math.max(realScore * 100, 3)}%` }}>
+              <span>{asDecimal(realScore)}</span>
+            </div>
+            <div className="prob-bar fake" style={{ height: `${Math.max(fakeScore * 100, 3)}%` }}>
+              <span>{asDecimal(fakeScore)}</span>
+            </div>
+          </div>
+          <div className="prob-labels">
+            <span>Genuine</span>
+            <span>Spoofed</span>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function UploadBox({ inputRef, inputKey, onFileSelected, onDropFile, isAnalyzing, progress, audioPreviewUrl }) {
+  return (
+    <section className="upload-section">
+      <div className="section-heading">
+        <h1>Upload Audio File</h1>
+        <p>Upload a .wav, .flac, .mp3, .m4a, or .ogg audio file to check whether it is genuine or spoofed.</p>
+      </div>
+
+      <label
+        className={`drop-zone ${isAnalyzing ? "analyzing" : ""}`}
+        onDragOver={(event) => event.preventDefault()}
+        onDrop={(event) => {
+          event.preventDefault();
+          const file = event.dataTransfer.files?.[0];
+          if (file) {
+            onDropFile(file);
+          }
+        }}
+      >
+        <input
+          key={inputKey}
+          ref={inputRef}
+          type="file"
+          accept=".wav,.flac,.mp3,.m4a,.ogg,audio/*"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (file) {
+              onFileSelected(file);
+            }
+          }}
+        />
+        <div className="upload-cloud">UP</div>
+        <strong>Drag and drop your audio file here</strong>
+        <span>or</span>
+        <button
+          type="button"
+          onClick={(event) => {
+            event.preventDefault();
+            inputRef.current?.click();
+          }}
+        >
+          Choose File
+        </button>
+        <small>Supported formats: .wav, .flac, .mp3, .m4a, .ogg | Max size depends on backend limits</small>
+      </label>
+
+      {isAnalyzing && (
+        <div className="upload-progress">
+          <div>
+            <span style={{ width: `${progress}%` }} />
+          </div>
+          <p>Analyzing audio and building prediction evidence...</p>
+        </div>
+      )}
+
+      {audioPreviewUrl && (
+        <audio className="audio-preview" controls src={audioPreviewUrl}>
+          <track kind="captions" />
+        </audio>
+      )}
+    </section>
+  );
+}
+
+function UploadedFileCard({ result, selectedFile }) {
+  return (
+    <section className="panel upload-file-card">
+      <h3>Uploaded File</h3>
+      <div className="file-card-body">
+        <div className="file-art">M</div>
+        <dl className="details-list compact">
+          <div>
+            <dt>File Name</dt>
+            <dd>{result?.fileName || selectedFile?.name || "No file selected"}</dd>
+          </div>
+          <div>
+            <dt>Duration</dt>
+            <dd>{result ? "Preview enabled" : "N/A"}</dd>
+          </div>
+          <div>
+            <dt>Sample Rate</dt>
+            <dd>Model processed</dd>
+          </div>
+          <div>
+            <dt>File Size</dt>
+            <dd>{result?.fileSizeLabel || formatFileSize(selectedFile?.size)}</dd>
+          </div>
+          <div>
+            <dt>Uploaded On</dt>
+            <dd>{result?.uploadedOn || "Waiting for upload"}</dd>
+          </div>
+        </dl>
+      </div>
+    </section>
+  );
+}
+
+function RecentPredictions({ history, onOpenHistory }) {
+  const recent = history.slice(0, 5);
+
+  return (
+    <section className="panel recent-panel">
+      <div className="panel-title">
+        <span className="tiny-icon">R</span>
+        <h3>Recent Predictions</h3>
+      </div>
+      {recent.length === 0 ? (
+        <div className="empty-line">Previous predictions will be stored here automatically.</div>
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>File Name</th>
+                <th>Prediction</th>
+                <th>Confidence</th>
+                <th>Date & Time</th>
+              </tr>
+            </thead>
+            <tbody>
+              {recent.map((item) => (
+                <tr key={item.id}>
+                  <td>{item.fileName}</td>
+                  <td className={predictionTone(item.prediction)}>{displayPrediction(item.prediction)}</td>
+                  <td>{asPercent(item.confidence)}</td>
+                  <td>{item.uploadedOn}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <button type="button" className="outline-btn" onClick={onOpenHistory}>
+        View All History
+      </button>
+    </section>
+  );
+}
+
 export default function App() {
-  const [activePage, setActivePage] = useState("analysis");
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const fileInputRef = useRef(null);
+  const [activeView, setActiveView] = useState("dashboard");
   const [selectedFile, setSelectedFile] = useState(null);
   const [audioPreviewUrl, setAudioPreviewUrl] = useState("");
   const [inputKey, setInputKey] = useState(0);
-  const [progress, setProgress] = useState(0);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [progress, setProgress] = useState(0);
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
   const [history, setHistory] = useState([]);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [resultFilter, setResultFilter] = useState("all");
 
-  const navItems = ["analysis", "history", "settings"];
-
-  const steps = useMemo(
-    () => [
-      "Uploading audio sample",
-      "Preparing feature extraction",
-      "Running LA and PA models",
-      "Comparing forensic scores",
-      "Building evaluation report",
-    ],
-    []
-  );
+  const navItems = [
+    { id: "dashboard", label: "Dashboard" },
+    { id: "upload", label: "Upload Audio" },
+    { id: "prediction", label: "Prediction" },
+    { id: "history", label: "History" },
+    { id: "help", label: "Help" },
+  ];
 
   useEffect(() => {
-    if (!isAnalyzing) {
-      return undefined;
-    }
-
-    const timer = window.setInterval(() => {
-      setProgress((prev) => (prev >= 90 ? 90 : prev + 8));
-    }, 320);
-
-    return () => window.clearInterval(timer);
-  }, [isAnalyzing]);
-
-  useEffect(() => {
-    const saved = localStorage.getItem(HISTORY_KEY);
-    if (saved) {
-      try {
-        setHistory(JSON.parse(saved));
-      } catch {
-        setHistory([]);
-      }
+    try {
+      const saved = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
+      setHistory(saved.map(normalizeHistoryItem).filter(Boolean));
+    } catch {
+      setHistory([]);
     }
   }, []);
 
@@ -210,44 +619,66 @@ export default function App() {
       return undefined;
     }
 
-    const url = URL.createObjectURL(selectedFile);
-    setAudioPreviewUrl(url);
-
-    return () => URL.revokeObjectURL(url);
+    const nextUrl = URL.createObjectURL(selectedFile);
+    setAudioPreviewUrl(nextUrl);
+    return () => URL.revokeObjectURL(nextUrl);
   }, [selectedFile]);
 
-  const progressStepIndex = Math.min(
-    steps.length - 1,
-    Math.floor((progress / 100) * steps.length)
-  );
+  useEffect(() => {
+    if (!isAnalyzing) {
+      return undefined;
+    }
 
-  const analyzedAt = result?.analyzedAt || new Date().toLocaleString();
-  const reportFileName = result?.file_name || selectedFile?.name || "audio-sample";
+    const timer = window.setInterval(() => {
+      setProgress((previous) => (previous >= 92 ? 92 : previous + 7));
+    }, 260);
 
-  const saveHistory = (nextHistory) => {
-    setHistory(nextHistory);
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(nextHistory));
+    return () => window.clearInterval(timer);
+  }, [isAnalyzing]);
+
+  const filteredHistory = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+
+    return history.filter((item) => {
+      const matchesSearch = !term || item.fileName.toLowerCase().includes(term);
+      const matchesFilter =
+        resultFilter === "all" ||
+        (resultFilter === "real" && !isDeepfakePrediction(item.prediction)) ||
+        (resultFilter === "fake" && isDeepfakePrediction(item.prediction));
+
+      return matchesSearch && matchesFilter;
+    });
+  }, [history, resultFilter, searchTerm]);
+
+  const persistHistory = (updater) => {
+    setHistory((previous) => {
+      const next = typeof updater === "function" ? updater(previous) : updater;
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
+      return next;
+    });
   };
 
-  const resetAnalysis = () => {
+  const resetForNewUpload = () => {
     setSelectedFile(null);
-    setInputKey((prev) => prev + 1);
-    setProgress(0);
-    setIsAnalyzing(false);
     setResult(null);
     setError("");
+    setProgress(0);
+    setInputKey((previous) => previous + 1);
+    setActiveView("dashboard");
+    window.setTimeout(() => fileInputRef.current?.click(), 0);
   };
 
-  const startAnalysis = async (file) => {
+  const runPrediction = async (file) => {
     if (!file) {
       return;
     }
 
     setSelectedFile(file);
-    setError("");
     setResult(null);
-    setProgress(12);
+    setError("");
+    setProgress(14);
     setIsAnalyzing(true);
+    setActiveView("dashboard");
 
     const formData = new FormData();
     formData.append("file", file);
@@ -257,278 +688,247 @@ export default function App() {
         method: "POST",
         body: formData,
       });
-
-      let data = null;
-      try {
-        data = await response.json();
-      } catch {
-        data = null;
-      }
+      const data = await response.json().catch(() => null);
 
       if (!response.ok) {
-        const message =
-          data?.detail || data?.error || `Request failed (${response.status}).`;
-        throw new Error(message);
+        throw new Error(data?.detail || data?.error || `Prediction failed with status ${response.status}.`);
       }
 
       if (!data?.prediction) {
-        throw new Error("Invalid response from prediction API.");
+        throw new Error("The prediction API returned an invalid response.");
       }
 
+      const uploadedOn = new Date().toLocaleString();
       const enrichedResult = {
         ...data,
-        analyzedAt: new Date().toLocaleString(),
+        fileName: data.file_name || file.name,
+        fileSize: file.size,
+        fileSizeLabel: formatFileSize(file.size),
+        uploadedOn,
       };
-
-      const historyItem = {
-        id: Date.now(),
-        filename: file.name,
-        date: enrichedResult.analyzedAt,
+      const historyItem = normalizeHistoryItem({
+        id: `${Date.now()}-${safeFileName(file.name)}`,
+        fileName: file.name,
+        fileSize: file.size,
+        uploadedOn,
+        prediction: enrichedResult.prediction,
+        confidence: enrichedResult.confidence,
+        realScore: enrichedResult.ensemble_real_score,
+        fakeScore: enrichedResult.ensemble_fake_score,
         result: enrichedResult,
-      };
+      });
 
-      saveHistory([historyItem, ...history]);
       setProgress(100);
       setResult(enrichedResult);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to process file.";
-      setError(message);
+      persistHistory((previous) => [historyItem, ...previous].slice(0, 100));
+    } catch (caughtError) {
+      setError(caughtError instanceof Error ? caughtError.message : "Unable to analyze this file.");
     } finally {
       setIsAnalyzing(false);
     }
   };
 
+  const deleteHistoryItem = (id) => {
+    persistHistory((previous) => previous.filter((item) => item.id !== id));
+  };
+
+  const clearHistory = () => {
+    persistHistory([]);
+  };
+
   return (
-    <div className="app">
-      <aside className={`sidebar ${!sidebarOpen ? "collapsed" : ""}`}>
-        <div className="brand-block">
-          <p className="brand-kicker">Voice Integrity Lab</p>
-          <h1>Audio Forensics</h1>
-          <p className="brand-subtitle">Real-time deepfake evidence dashboard</p>
+    <div className="app-shell">
+      <header className="top-header">
+        <div className="brand">
+          <AppLogo />
+          <h1>Audio Deepfake Detection System</h1>
         </div>
-
-        <nav className="nav" aria-label="Main Navigation">
-          {navItems.map((item) => (
-            <button
-              key={item}
-              type="button"
-              className={`nav-item ${activePage === item ? "active" : ""}`}
-              onClick={() => setActivePage(item)}
-            >
-              {item}
-            </button>
-          ))}
-        </nav>
-      </aside>
-
-      <main className="workspace">
-        <header className="topbar">
-          <button
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            type="button"
-            className="menu-button"
-          >
-            Menu
+        <div className="header-actions">
+          <button type="button" className="icon-btn" aria-label="Theme toggle">
+            Dark
           </button>
-          <div>
-            <h2 className="topbar-title">Forensic Audio Analysis</h2>
-            <p className="topbar-subtitle">Upload audio, review evidence, and export a report.</p>
+          <button type="button" className="primary-btn" onClick={() => setActiveView("help")}>
+            About System
+          </button>
+        </div>
+      </header>
+
+      <div className="main-layout">
+        <aside className="sidebar">
+          <nav aria-label="Main navigation">
+            {navItems.map((item, index) => (
+              <button
+                key={`${item.label}-${index}`}
+                type="button"
+                className={activeView === item.id ? "active" : ""}
+                onClick={() => setActiveView(item.id)}
+              >
+                <span className="nav-dot">{item.label.slice(0, 1)}</span>
+                {item.label}
+              </button>
+            ))}
+          </nav>
+          <div className="about-card">
+            <strong>About</strong>
+            <p>
+              This system uses deep learning models to detect genuine and spoofed audio using Log-Mel
+              and LFCC features with LCNN and ResNet18 models.
+            </p>
           </div>
-        </header>
+        </aside>
 
-        <section className="content">
-          {activePage === "analysis" && (
-            <div className="analysis-grid">
-              <section className="upload-panel">
-                <div className="section-head">
-                  <span>Input</span>
-                  <h3>Audio sample</h3>
-                </div>
-
-                <label className="file-picker">
-                  <input
-                    key={inputKey}
-                    type="file"
-                    accept=".wav,.flac,.mp3,.m4a,.ogg"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0] ?? null;
-                      if (file) {
-                        void startAnalysis(file);
-                      }
-                    }}
-                  />
-                  <span>Choose audio file</span>
-                </label>
-
-                <div className="file-summary">
-                  <strong>{selectedFile?.name || "No file selected"}</strong>
-                  <span>{fileSizeLabel(selectedFile)}</span>
-                </div>
-
-                {audioPreviewUrl && (
-                  <audio className="audio-preview" controls src={audioPreviewUrl}>
-                    <track kind="captions" />
-                  </audio>
-                )}
-
-                {isAnalyzing && (
-                  <div className="progress">
-                    <div className="bar">
-                      <div className="fill" style={{ width: `${progress}%` }} />
-                    </div>
-                    <p>{steps[progressStepIndex]}</p>
-                  </div>
-                )}
-
-                {error && (
-                  <div className="error">
-                    <p>{error}</p>
-                  </div>
-                )}
-              </section>
-
-              <section className="report-panel">
-                {!result && (
-                  <div className="empty-state">
-                    <span>Report</span>
-                    <h3>Awaiting evaluation</h3>
-                    <p>The evidence graph and downloadable report will appear after analysis.</p>
-                  </div>
-                )}
-
-                {result && (
-                  <>
-                    <div className="report-header">
-                      <div>
-                        <span>Final decision</span>
-                        <h3>{result.prediction}</h3>
-                      </div>
-                      <span className={`prediction-pill ${predictionTone(result.prediction)}`}>
-                        {asPercent(result.confidence)}
-                      </span>
-                    </div>
-
-                    <div className="decision-grid">
-                      <div className="decision-card">
-                        <span>Real Evidence</span>
-                        <strong>{asPercent(result.ensemble_real_score)}</strong>
-                      </div>
-                      <div className="decision-card">
-                        <span>Fake Evidence</span>
-                        <strong>{asPercent(result.ensemble_fake_score)}</strong>
-                      </div>
-                      <div className="decision-card">
-                        <span>Agreement</span>
-                        <strong>{modelAgreement(result)}</strong>
-                      </div>
-                    </div>
-
-                    <div className="score-board">
-                      <ScoreBar label="Ensemble Real Score" value={result.ensemble_real_score} tone="real" />
-                      <ScoreBar label="Ensemble Fake Score" value={result.ensemble_fake_score} tone="fake" />
-                      <ScoreBar label="LA Fake Score" value={result.la_score} tone="la" />
-                      <ScoreBar label="PA Fake Score" value={result.pa_score} tone="pa" />
-                    </div>
-
-                    <div className="model-grid">
-                      <div>
-                        <span>LA Model</span>
-                        <strong>{result.la?.prediction ?? "N/A"}</strong>
-                        <p>{asPercent(result.la?.confidence)} confidence</p>
-                      </div>
-                      <div>
-                        <span>PA Model</span>
-                        <strong>{result.pa?.prediction ?? "N/A"}</strong>
-                        <p>{asPercent(result.pa?.confidence)} confidence</p>
-                      </div>
-                    </div>
-
-                    <div className="actions">
-                      <button
-                        type="button"
-                        className="primary-btn"
-                        onClick={() =>
-                          downloadReport({
-                            result,
-                            fileName: reportFileName,
-                            analyzedAt,
-                          })
-                        }
-                      >
-                        Download Report
-                      </button>
-                      <button type="button" className="secondary-btn" onClick={resetAnalysis}>
-                        Analyze Another
-                      </button>
-                    </div>
-                  </>
-                )}
-              </section>
+        <main className="content">
+          <div className="content-toolbar">
+            <div>
+              <span className="eyebrow">Forensic Dashboard</span>
+              <h2>
+                {activeView === "history"
+                  ? "Prediction History"
+                  : activeView === "prediction"
+                    ? "Prediction Results"
+                    : activeView === "help"
+                      ? "About System"
+                      : activeView === "upload"
+                        ? "Upload Audio"
+                        : "Dashboard"}
+              </h2>
             </div>
+            <button type="button" className="primary-btn upload-new" onClick={resetForNewUpload}>
+              Upload New File
+            </button>
+          </div>
+
+          {error && <div className="error-banner">{error}</div>}
+
+          {(activeView === "dashboard" || activeView === "upload") && (
+            <>
+              <UploadBox
+                inputRef={fileInputRef}
+                inputKey={inputKey}
+                onFileSelected={(file) => void runPrediction(file)}
+                onDropFile={(file) => void runPrediction(file)}
+                isAnalyzing={isAnalyzing}
+                progress={progress}
+                audioPreviewUrl={audioPreviewUrl}
+              />
+
+              <section className="dashboard-grid">
+                <div className="left-stack">
+                  <PredictionBanner result={result} />
+                  <ModelScores result={result} />
+                </div>
+                <div className="right-stack">
+                  <UploadedFileCard result={result} selectedFile={selectedFile} />
+                  <RecentPredictions history={history} onOpenHistory={() => setActiveView("history")} />
+                </div>
+              </section>
+            </>
           )}
 
-          {activePage === "history" && (
-            <section className="history-view">
-              <div className="section-head">
-                <span>Archive</span>
-                <h3>Prediction history</h3>
+          {activeView === "prediction" && (
+            <section className="prediction-page">
+              <PredictionBanner result={result} />
+              <div className="result-grid">
+                <ModelScores result={result} />
+                <ConfidenceGauge result={result} />
+              </div>
+              <div className="result-grid lower">
+                <AudioDetails result={result} selectedFile={selectedFile} />
+                <FeatureVisuals result={result} />
+              </div>
+              {result && (
+                <div className="note-row">
+                  <span>i</span>
+                  <p>Lower EER indicates better performance. The system is working as expected.</p>
+                  <button type="button" className="outline-btn" onClick={() => downloadReport(result)}>
+                    Download Report
+                  </button>
+                </div>
+              )}
+            </section>
+          )}
+
+          {activeView === "history" && (
+            <section className="history-page panel">
+              <div className="history-controls">
+                <input
+                  type="search"
+                  placeholder="Search by filename"
+                  value={searchTerm}
+                  onChange={(event) => setSearchTerm(event.target.value)}
+                />
+                <select value={resultFilter} onChange={(event) => setResultFilter(event.target.value)}>
+                  <option value="all">All Results</option>
+                  <option value="real">Genuine Only</option>
+                  <option value="fake">Spoofed Only</option>
+                </select>
+                <button type="button" className="danger-btn" onClick={clearHistory} disabled={history.length === 0}>
+                  Clear All History
+                </button>
               </div>
 
-              {history.length === 0 ? (
-                <p className="muted">No previous analyses available.</p>
+              {filteredHistory.length === 0 ? (
+                <div className="empty-history">
+                  <h3>No saved predictions yet</h3>
+                  <p>Every successful upload is saved automatically in your browser localStorage.</p>
+                </div>
               ) : (
                 <div className="history-list">
-                  {history.map((item) => (
-                    <article className="history-card" key={item.id}>
+                  {filteredHistory.map((item) => (
+                    <article className="history-card-row" key={item.id}>
                       <div>
-                        <h4>{item.filename}</h4>
-                        <p>{item.date}</p>
+                        <strong>{item.fileName}</strong>
+                        <p>{item.uploadedOn}</p>
                       </div>
-                      <span className={`mini-pill ${predictionTone(item.result.prediction)}`}>
-                        {item.result.prediction}
+                      <span className={`result-badge ${predictionTone(item.prediction)}`}>
+                        {displayPrediction(item.prediction)}
                       </span>
-                      <strong>{asPercent(item.result.confidence)}</strong>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          downloadReport({
-                            result: item.result,
-                            fileName: item.filename,
-                            analyzedAt: item.date,
-                          })
-                        }
-                      >
-                        Report
-                      </button>
+                      <div className="history-metrics">
+                        <span>Confidence: {asPercent(item.confidence)}</span>
+                        <span>Real: {asPercent(item.realScore)}</span>
+                        <span>Fake: {asPercent(item.fakeScore)}</span>
+                      </div>
+                      <div className="row-actions">
+                        <button type="button" className="outline-btn" onClick={() => downloadReport(item)}>
+                          Report
+                        </button>
+                        <button type="button" className="danger-btn ghost" onClick={() => deleteHistoryItem(item.id)}>
+                          Delete
+                        </button>
+                      </div>
                     </article>
                   ))}
                 </div>
               )}
-
-              {history.length > 0 && (
-                <button
-                  className="secondary-btn clear-btn"
-                  type="button"
-                  onClick={() => saveHistory([])}
-                >
-                  Clear History
-                </button>
-              )}
             </section>
           )}
 
-          {activePage === "settings" && (
-            <section className="settings-view">
-              <div className="section-head">
-                <span>Runtime</span>
-                <h3>API settings</h3>
+          {activeView === "help" && (
+            <section className="help-page panel">
+              <h3>Audio Deepfake Detection System</h3>
+              <p>
+                Upload an audio file and the existing FastAPI backend evaluates it with the trained LCNN
+                and ResNet18 models. The frontend stores previous successful predictions locally in your
+                browser so you can review results later without changing backend inference logic.
+              </p>
+              <div className="help-grid">
+                <div>
+                  <strong>Frontend</strong>
+                  <span>Modern dashboard, result cards, report download, and local history.</span>
+                </div>
+                <div>
+                  <strong>Backend</strong>
+                  <span>Unchanged `/predict` endpoint and existing model loading logic.</span>
+                </div>
+                <div>
+                  <strong>Models</strong>
+                  <span>LCNN Log-Mel and ResNet18 LFCC ensemble decision support.</span>
+                </div>
               </div>
-              <p className="muted">Prediction API: {API_BASE_URL}</p>
-              <p className="muted">Reports are generated in the browser as standalone HTML files.</p>
             </section>
           )}
-        </section>
-      </main>
+        </main>
+      </div>
     </div>
   );
 }
