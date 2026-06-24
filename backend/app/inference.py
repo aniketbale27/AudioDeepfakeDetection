@@ -1,15 +1,18 @@
 import os
-from pathlib import Path
 
 import soundfile as sf
 import torch
 import torch.nn.functional as F
 
-from app.model_loader import device, load_la_model, load_pa_model
+try:
+    from backend.app.model_loader import device, load_la_model, load_pa_model
+except ModuleNotFoundError:
+    from app.model_loader import device, load_la_model, load_pa_model
+try:
+    from backend.app.project_paths import PROJECT_ROOT
+except ModuleNotFoundError:
+    from app.project_paths import PROJECT_ROOT
 from training.data_utils.audio import pad_or_repeat_1d
-
-
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 LA_MODEL_PATH = os.getenv(
     "LA_MODEL_PATH",

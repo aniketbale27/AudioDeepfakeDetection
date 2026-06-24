@@ -1,11 +1,17 @@
 import shutil
 import uuid
-from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.inference import predict
+try:
+    from backend.app.inference import predict
+except ModuleNotFoundError:
+    from app.inference import predict
+try:
+    from backend.app.project_paths import PROJECT_ROOT
+except ModuleNotFoundError:
+    from app.project_paths import PROJECT_ROOT
 
 app = FastAPI(title="Audio Deepfake Detection API")
 
@@ -17,7 +23,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-UPLOAD_FOLDER = Path(__file__).resolve().parents[2] / "uploads"
+UPLOAD_FOLDER = PROJECT_ROOT / "uploads"
 UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
 
 
@@ -51,4 +57,3 @@ async def predict_audio(file: UploadFile = File(...)):
     finally:
         if file_path.exists():
             file_path.unlink()
-

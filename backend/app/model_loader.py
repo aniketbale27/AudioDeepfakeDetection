@@ -2,6 +2,10 @@ import os
 
 import torch
 
+try:
+    from backend.app.project_paths import PROJECT_ROOT
+except ModuleNotFoundError:
+    from app.project_paths import PROJECT_ROOT
 from training.feature_extractor import LogMelExtractor
 from training.feature_extractor_lfcc import LFCCExtractor
 from training.model import LCNN
