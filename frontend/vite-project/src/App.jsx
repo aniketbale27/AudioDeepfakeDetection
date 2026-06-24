@@ -1,8 +1,80 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
+const LOCAL_API_BASE_URL = "http://127.0.0.1:8000";
 const HISTORY_KEY = "predictionHistory";
+const API_BASE_URL_STORAGE_KEY = "audioApiBaseUrl";
+
+function normalizeApiBaseUrl(value) {
+  return String(value ?? "").trim().replace(/\/+$/, "");
+}
+
+function isLocalHostname(hostname) {
+  return ["localhost", "127.0.0.1", "::1"].includes(String(hostname || "").toLowerCase());
+}
+
+function readStoredApiBaseUrl() {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  return normalizeApiBaseUrl(window.localStorage.getItem(API_BASE_URL_STORAGE_KEY));
+}
+
+function resolveApiBaseUrl() {
+  const storedValue = readStoredApiBaseUrl();
+  if (storedValue) {
+    return storedValue;
+  }
+
+  const envValue = normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL);
+  if (envValue) {
+    return envValue;
+  }
+
+  if (typeof window !== "undefined" && isLocalHostname(window.location.hostname)) {
+    return LOCAL_API_BASE_URL;
+  }
+
+  return "";
+}
+
+function defaultApiBaseUrlInput() {
+  return resolveApiBaseUrl() || LOCAL_API_BASE_URL;
+}
+
+function usingLocalhostBackend(apiBaseUrl) {
+  if (!apiBaseUrl) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(apiBaseUrl);
+    return isLocalHostname(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function backendConnectionMessage(apiBaseUrl) {
+  if (!apiBaseUrl) {
+    return "No backend URL is configured. Open About System and set a reachable backend URL.";
+  }
+
+  if (typeof window !== "undefined" && !isLocalHostname(window.location.hostname) && usingLocalhostBackend(apiBaseUrl)) {
+    return "This Vercel frontend is pointing to localhost. That only works when the page is opened on the same machine that is running the backend.";
+  }
+
+  return `Current backend: ${apiBaseUrl}`;
+}
+
+function createBackendReachabilityMessage(apiBaseUrl) {
+  if (!apiBaseUrl) {
+    return "No backend URL is configured. Open About System and set a reachable backend URL.";
+  }
+
+  return `Unable to reach ${apiBaseUrl}. If this frontend is running on Vercel, localhost only works from the same computer as the backend. Otherwise use a public URL, a tunnel, or your backend machine's LAN IP.`;
+}
 
 function clampScore(value) {
   const number = Number(value);
@@ -582,6 +654,56 @@ function RecentPredictions({ history, onOpenHistory }) {
   );
 }
 
+function ApiEndpointSettings({
+  apiBaseUrl,
+  apiBaseUrlInput,
+  onApiBaseUrlInputChange,
+  onSaveApiBaseUrl,
+  onResetApiBaseUrl,
+}) {
+  const deployedFrontend = typeof window !== "undefined" && !isLocalHostname(window.location.hostname);
+  const localhostBackend = usingLocalhostBackend(apiBaseUrl);
+
+  return (
+    <section className="api-settings">
+      <div className="api-settings-copy">
+        <strong>Backend Endpoint</strong>
+        <p>{backendConnectionMessage(apiBaseUrl)}</p>
+      </div>
+
+      <div className="api-settings-form">
+        <input
+          type="url"
+          inputMode="url"
+          placeholder={LOCAL_API_BASE_URL}
+          value={apiBaseUrlInput}
+          onChange={(event) => onApiBaseUrlInputChange(event.target.value)}
+        />
+        <div className="api-settings-actions">
+          <button type="button" className="primary-btn" onClick={onSaveApiBaseUrl}>
+            Save Endpoint
+          </button>
+          <button type="button" className="outline-btn" onClick={onResetApiBaseUrl}>
+            Reset
+          </button>
+        </div>
+      </div>
+
+      <p className="api-settings-note">
+        For a deployed Vercel frontend, localhost only works when this page is opened on the same
+        computer that is running the FastAPI backend.
+      </p>
+
+      {deployedFrontend && localhostBackend && (
+        <div className="api-settings-warning">
+          The deployed site is still using localhost. For other devices or other users, point this to
+          a public backend URL, a tunnel URL, or the backend machine&apos;s LAN IP.
+        </div>
+      )}
+    </section>
+  );
+}
+
 export default function App() {
   const fileInputRef = useRef(null);
   const [activeView, setActiveView] = useState("dashboard");
@@ -595,6 +717,8 @@ export default function App() {
   const [history, setHistory] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [resultFilter, setResultFilter] = useState("all");
+  const [apiBaseUrl, setApiBaseUrl] = useState(() => resolveApiBaseUrl());
+  const [apiBaseUrlInput, setApiBaseUrlInput] = useState(() => defaultApiBaseUrlInput());
 
   const navItems = [
     { id: "dashboard", label: "Dashboard" },
@@ -668,6 +792,29 @@ export default function App() {
     window.setTimeout(() => fileInputRef.current?.click(), 0);
   };
 
+  const saveApiBaseUrl = () => {
+    const nextApiBaseUrl = normalizeApiBaseUrl(apiBaseUrlInput);
+    if (!nextApiBaseUrl) {
+      window.localStorage.removeItem(API_BASE_URL_STORAGE_KEY);
+      setApiBaseUrl("");
+      setApiBaseUrlInput(LOCAL_API_BASE_URL);
+      return;
+    }
+
+    window.localStorage.setItem(API_BASE_URL_STORAGE_KEY, nextApiBaseUrl);
+    setApiBaseUrl(nextApiBaseUrl);
+    setApiBaseUrlInput(nextApiBaseUrl);
+    setError("");
+  };
+
+  const resetApiBaseUrl = () => {
+    window.localStorage.removeItem(API_BASE_URL_STORAGE_KEY);
+    const nextApiBaseUrl = resolveApiBaseUrl();
+    setApiBaseUrl(nextApiBaseUrl);
+    setApiBaseUrlInput(nextApiBaseUrl || LOCAL_API_BASE_URL);
+    setError("");
+  };
+
   const runPrediction = async (file) => {
     if (!file) {
       return;
@@ -684,7 +831,12 @@ export default function App() {
     formData.append("file", file);
 
     try {
-      const response = await fetch(`${API_BASE_URL.replace(/\/$/, "")}/predict`, {
+      const requestBaseUrl = normalizeApiBaseUrl(apiBaseUrl);
+      if (!requestBaseUrl) {
+        throw new Error(createBackendReachabilityMessage(""));
+      }
+
+      const response = await fetch(`${requestBaseUrl}/predict`, {
         method: "POST",
         body: formData,
       });
@@ -722,7 +874,11 @@ export default function App() {
       setResult(enrichedResult);
       persistHistory((previous) => [historyItem, ...previous].slice(0, 100));
     } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : "Unable to analyze this file.");
+      if (caughtError instanceof TypeError) {
+        setError(createBackendReachabilityMessage(apiBaseUrl));
+      } else {
+        setError(caughtError instanceof Error ? caughtError.message : "Unable to analyze this file.");
+      }
     } finally {
       setIsAnalyzing(false);
     }
@@ -911,6 +1067,13 @@ export default function App() {
                 and ResNet18 models. The frontend stores previous successful predictions locally in your
                 browser so you can review results later without changing backend inference logic.
               </p>
+              <ApiEndpointSettings
+                apiBaseUrl={apiBaseUrl}
+                apiBaseUrlInput={apiBaseUrlInput}
+                onApiBaseUrlInputChange={setApiBaseUrlInput}
+                onSaveApiBaseUrl={saveApiBaseUrl}
+                onResetApiBaseUrl={resetApiBaseUrl}
+              />
               <div className="help-grid">
                 <div>
                   <strong>Frontend</strong>

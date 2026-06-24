@@ -923,6 +923,58 @@ td.real {
   line-height: 1.7;
 }
 
+.api-settings {
+  display: grid;
+  gap: 14px;
+  margin-top: 20px;
+  padding: 18px 0 22px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.api-settings-copy strong,
+.api-settings-copy p,
+.api-settings-note {
+  display: block;
+}
+
+.api-settings-copy p,
+.api-settings-note {
+  margin: 6px 0 0;
+}
+
+.api-settings-form {
+  display: grid;
+  gap: 12px;
+}
+
+.api-settings-form input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 12px 14px;
+  color: var(--ink);
+  background: #ffffff;
+}
+
+.api-settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.api-settings-note {
+  color: var(--muted);
+}
+
+.api-settings-warning {
+  padding: 14px 16px;
+  border: 1px solid #ffd08a;
+  border-radius: 10px;
+  color: #8a4a00;
+  background: #fff8eb;
+}
+
 .help-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -1036,6 +1088,7 @@ td.real {
   .prediction-card,
   .history-card-row,
   .history-controls,
+  .api-settings-form,
   .help-grid {
     grid-template-columns: 1fr;
   }
