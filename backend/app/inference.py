@@ -5,7 +5,7 @@ import soundfile as sf
 import torch
 import torch.nn.functional as F
 
-from backend.app.model_loader import device, load_la_model, load_pa_model
+from app.model_loader import device, load_la_model, load_pa_model
 from training.data_utils.audio import pad_or_repeat_1d
 
 

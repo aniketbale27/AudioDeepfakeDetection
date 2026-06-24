@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.app.inference import predict
+from app.inference import predict
 
 app = FastAPI(title="Audio Deepfake Detection API")
 
